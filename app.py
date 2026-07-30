@@ -61,6 +61,27 @@ def color_ql(val):
     return f"background-color: rgba(198,40,40,{min(0.1 + (1 - val), 0.45)})"
 
 
+def tabela_colorida(df, value_cols, fmt_func=None):
+    """Colore e formata colunas numéricas (ex.: QL) como texto antes de montar o
+    Styler — o st.dataframe às vezes ignora Styler.format() para células NaN e
+    mostra o "None" do Python cru; convertendo para string primeiro isso não
+    acontece, e a cor de fundo continua calculada a partir dos valores originais."""
+    if fmt_func is None:
+        fmt_func = lambda v: "—" if pd.isna(v) else f"{v:.2f}"
+    numeric = df[value_cols]
+    disp = df.copy()
+    for c in value_cols:
+        disp[c] = numeric[c].apply(fmt_func)
+
+    def aplica_cores(_):
+        styles = pd.DataFrame("", index=disp.index, columns=disp.columns)
+        for c in value_cols:
+            styles[c] = numeric[c].apply(color_ql)
+        return styles
+
+    return disp.style.apply(aplica_cores, axis=None)
+
+
 ea = dl.load_empresas_ativas()
 emp_long, emp_delta = dl.load_empregos()
 est_long, est_delta = dl.load_estabelecimentos()
@@ -72,6 +93,8 @@ tela = st.sidebar.radio(
     [
         "Resumo Executivo",
         "QL por Grupo CNAE",
+        "Empresas por Grupo (13 pontos)",
+        "Renda por Grupo CNAE (2025)",
         "Maiores Altas e Baixas",
         "Empresas por Porte",
         "Comparativo Geográfico",
@@ -169,9 +192,7 @@ elif tela == "QL por Grupo CNAE":
         "QL Médio",
         "Períodos Cresc.",
     ]
-    styled = display_df.style.map(color_ql, subset=[str(a) for a in dl.ANOS] + ["QL Médio"]).format(
-        {c: (lambda v: "—" if pd.isna(v) else f"{v:.2f}") for c in [str(a) for a in dl.ANOS] + ["QL Médio"]}
-    )
+    styled = tabela_colorida(display_df, [str(a) for a in dl.ANOS] + ["QL Médio"])
     st.dataframe(styled, use_container_width=True, height=650)
 
     st.markdown(f"Página {pagina} de {total_paginas}")
@@ -229,6 +250,133 @@ elif tela == "QL por Grupo CNAE":
                     f"Dado indisponível em {anos_str} — grupo não existia em Imperatriz "
                     "ou na base de comparação neste(s) ano(s)."
                 )
+
+# ---------------------------------------------------------------------------
+elif tela == "Empresas por Grupo (13 pontos)":
+    st.title("Empresas Ativas por Grupo CNAE — Série 2001-2025")
+    st.caption(
+        "Estoque de empresas matriz ativas (Receita Federal), reconstruído por data de "
+        "abertura, série completa de 13 pontos (2001 a 2025). QL Imperatriz vs Maranhão."
+    )
+
+    df13 = dl.load_empresas_grupo_13()
+
+    busca13 = st.text_input("🔎 Buscar grupo por nome ou código", key="busca_emp13")
+    dfv = df13.copy()
+    if busca13:
+        mask = dfv["nome"].str.contains(busca13, case=False, na=False) | dfv["codigo"].str.contains(
+            busca13, case=False, na=False
+        )
+        dfv = dfv[mask]
+
+    dfv = dfv.sort_values("ql_medio", ascending=False).reset_index(drop=True)
+    st.markdown(f"**{len(dfv)} grupos encontrados** — ordenados por QL médio")
+
+    PAGE_SIZE13 = 20
+    total_pag13 = max(1, -(-len(dfv) // PAGE_SIZE13))
+    pag13 = st.number_input("Página", min_value=1, max_value=total_pag13, value=1, step=1, key="pag_emp13")
+    ini13 = (pag13 - 1) * PAGE_SIZE13
+    pagina_df13 = dfv.iloc[ini13 : ini13 + PAGE_SIZE13]
+
+    ql_cols13 = [f"ql_{a}" for a in dl.ANOS_13]
+    disp13 = pagina_df13[["codigo", "nome"] + ql_cols13 + ["ql_medio"]].copy()
+    disp13.columns = ["Código", "Grupo"] + [str(a) for a in dl.ANOS_13] + ["QL Médio"]
+    styled13 = tabela_colorida(disp13, [str(a) for a in dl.ANOS_13] + ["QL Médio"])
+    st.dataframe(styled13, use_container_width=True, height=650)
+    st.markdown(f"Página {pag13} de {total_pag13}")
+
+    st.markdown("---")
+    st.markdown("### Ver detalhe de um grupo")
+    opcoes13 = pagina_df13.apply(lambda r: f"{r['codigo']} — {r['nome']}", axis=1).tolist()
+    if opcoes13:
+        escolha13 = st.selectbox("Selecione um grupo da página atual", opcoes13, key="sel_emp13")
+        cod13 = escolha13.split(" — ")[0]
+        row13 = dfv[dfv["codigo"] == cod13].iloc[0]
+
+        with st.container(border=True):
+            st.subheader(f"{row13['codigo']} — {row13['nome']}")
+            valores13 = [row13[f"ql_{a}"] for a in dl.ANOS_13]
+            fig13 = go.Figure()
+            fig13.add_trace(
+                go.Scatter(
+                    x=dl.ANOS_13,
+                    y=valores13,
+                    mode="lines+markers",
+                    line=dict(color=AZUL, width=3),
+                    marker=dict(size=9),
+                    connectgaps=True,
+                )
+            )
+            fig13.add_hline(y=1, line_dash="dash", line_color="gray")
+            fig13.update_layout(title="QL ao longo do tempo (empresas)", xaxis_title="Ano", yaxis_title="QL", height=380)
+            st.plotly_chart(fig13, use_container_width=True)
+
+            c1, c2 = st.columns(2)
+            c1.metric("Representatividade (2025)", fmt_pct(row13["representatividade"]))
+            c2.metric("Crescimento 2019→2025", fmt_pct(row13["cresc_5anos"]))
+
+# ---------------------------------------------------------------------------
+elif tela == "Renda por Grupo CNAE (2025)":
+    st.title("Renda Média por Grupo CNAE — RAIS 2025")
+    st.caption(
+        "Remuneração média nominal do ano (Vl Rem Média Nom), vínculos ativos em 31/12 "
+        "com renda > 0. QL Renda = renda média do grupo em Imperatriz ÷ renda média do "
+        "grupo no Maranhão (>1 = paga acima da média estadual do setor)."
+    )
+
+    st.markdown("### Por Seção CNAE")
+    df_renda_secao = dl.load_renda("Seção").sort_values("QL Renda (Imp/MA)", ascending=False)
+    fig_r = px.bar(
+        df_renda_secao,
+        x="Seção",
+        y=["Renda Média Imperatriz (R$)", "Renda Média Maranhão (R$)"],
+        barmode="group",
+        color_discrete_map={
+            "Renda Média Imperatriz (R$)": AZUL,
+            "Renda Média Maranhão (R$)": VERDE,
+        },
+        labels={"value": "Renda média (R$)", "variable": ""},
+        hover_data=["Nome Seção"],
+    )
+    fig_r.update_layout(height=440)
+    st.plotly_chart(fig_r, use_container_width=True)
+
+    st.markdown("### Detalhamento por Grupo CNAE")
+    nivel_renda = st.radio("Nível", ["Grupo", "Divisão", "Seção"], horizontal=True, key="nivel_renda")
+    df_renda = dl.load_renda(nivel_renda)
+
+    busca_renda = st.text_input("🔎 Buscar por nome ou código", key="busca_renda")
+    if busca_renda:
+        nome_col = f"Nome {nivel_renda}"
+        cod_col = nivel_renda
+        mask = df_renda[nome_col].str.contains(busca_renda, case=False, na=False) | df_renda[
+            cod_col
+        ].astype(str).str.contains(busca_renda, case=False, na=False)
+        df_renda = df_renda[mask]
+
+    df_renda = df_renda.sort_values("QL Renda (Imp/MA)", ascending=False)
+
+    def fmt_reais(v):
+        if pd.isna(v):
+            return "—"
+        return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    disp_renda = df_renda.copy()
+    disp_renda["Vínculos Imperatriz"] = disp_renda["Vínculos Imperatriz"].apply(fmt_int)
+    disp_renda["Vínculos Maranhão"] = disp_renda["Vínculos Maranhão"].apply(fmt_int)
+    disp_renda["Renda Média Imperatriz (R$)"] = df_renda["Renda Média Imperatriz (R$)"].apply(fmt_reais)
+    disp_renda["Renda Média Maranhão (R$)"] = df_renda["Renda Média Maranhão (R$)"].apply(fmt_reais)
+
+    numeric_ql = df_renda["QL Renda (Imp/MA)"]
+    disp_renda["QL Renda (Imp/MA)"] = numeric_ql.apply(lambda v: "—" if pd.isna(v) else f"{v:.2f}")
+
+    def aplica_cor_renda(_):
+        styles = pd.DataFrame("", index=disp_renda.index, columns=disp_renda.columns)
+        styles["QL Renda (Imp/MA)"] = numeric_ql.apply(color_ql)
+        return styles
+
+    styled_renda = disp_renda.style.apply(aplica_cor_renda, axis=None)
+    st.dataframe(styled_renda, use_container_width=True, height=500)
 
 # ---------------------------------------------------------------------------
 elif tela == "Maiores Altas e Baixas":

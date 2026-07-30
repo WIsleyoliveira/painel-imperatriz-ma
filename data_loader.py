@@ -11,8 +11,15 @@ EMPRESAS_ATIVAS_FILE = f"{DATA_DIR}/Empresas_Ativas_Jul26_completo.xlsx"
 EMPREGOS_FILE = f"{DATA_DIR}/Estoque_Empregos_RAIS_corrigido.xlsx"
 ESTAB_FILE = f"{DATA_DIR}/Estoque_Empresas_RAIS_corrigido.xlsx"
 QL_GRUPO_FILE = f"{DATA_DIR}/QL_por_Grupo_CNAE_com_nomes.xlsx"
+EMPRESAS_GRUPO_13_FILE = f"{DATA_DIR}/Empresas_por_Grupo_CNAE_RAIS.xlsx"
+RENDA_FILES = {
+    "Seção": f"{DATA_DIR}/Renda_por_Secao_CNAE_RAIS.xlsx",
+    "Divisão": f"{DATA_DIR}/Renda_por_Divisao_CNAE_RAIS.xlsx",
+    "Grupo": f"{DATA_DIR}/Renda_por_Grupo_CNAE_RAIS.xlsx",
+}
 
 ANOS = [2000, 2005, 2010, 2015, 2020, 2025]
+ANOS_13 = [2001, 2003, 2005, 2007, 2009, 2011, 2013, 2015, 2017, 2019, 2021, 2023, 2025]
 
 
 def _parse_num(x):
@@ -189,3 +196,32 @@ def load_ql_grupo():
         data = data.dropna(subset=["codigo"])
         result[label] = data
     return result
+
+
+@st.cache_data
+def load_empresas_grupo_13():
+    """Empresas ativas por Grupo CNAE, série de 13 pontos (2001-2025, Receita
+    Federal), já com QL Imperatriz vs Maranhão calculado na planilha."""
+    df = pd.read_excel(EMPRESAS_GRUPO_13_FILE, header=3)
+    out = pd.DataFrame()
+    out["codigo"] = df["Grupo"].astype(int).astype(str).str.zfill(3)
+    out["nome"] = df["Nome Grupo"]
+    out["secao"] = df["Seção"]
+    for a in ANOS_13:
+        out[f"ql_{a}"] = df[f"QL {a}"]
+        out[f"emp_{a}"] = df[f"Emp. {a}"]
+    out["ql_medio"] = df["QL Médio"]
+    out["representatividade"] = df["Representat. (%)"]
+    out["cresc_5anos"] = df["Cresc. 5 anos (%)"]
+    out["periodos_cresc"] = df["Consistência (0-12)"].apply(
+        lambda s: int(str(s).split("/")[0]) if pd.notna(s) else None
+    )
+    return out
+
+
+@st.cache_data
+def load_renda(nivel):
+    """Renda média por Seção/Divisão/Grupo CNAE (RAIS 2025) — Imperatriz vs
+    Maranhão, com QL de renda já calculado na planilha."""
+    df = pd.read_excel(RENDA_FILES[nivel], header=3)
+    return df
