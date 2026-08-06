@@ -2,4 +2,11 @@ __pycache__/
 *.pyc
 ~$*
 .DS_Store
+._*
 .streamlit/secrets.toml
+.claude/scheduled_tasks.lock
+
+# ETL Pará (dados brutos e intermediários, não versionar - GBs de dados)
+etl_para/staging/
+etl_para/*.parquet
+etl_para/*.log

@@ -1,25 +1,70 @@
-"""Leitura e parsing dos 4 arquivos-fonte. Nenhum indicador novo é calculado aqui
-além de somas simples (para os cards de resumo) — QL, Δ% e totais por seção já
-vêm prontos nas planilhas."""
+"""Leitura e parsing dos arquivos-fonte de cada cidade. Nenhum indicador novo
+é calculado aqui além de somas simples (para os cards de resumo) — QL, Δ% e
+totais por seção já vêm prontos nas planilhas.
+
+Duas cidades (Ananindeua, Capanema) usam uma metodologia um pouco diferente
+de Imperatriz porque a fonte de dados é outra (CNPJ Receita Federal bruto +
+RAIS Vínculos bruto, processados localmente, em vez de planilhas já prontas):
+- Porte: só MEI vs Demais (não há ME/EPP vs Grande/Médio, arquivo EMPRESAS
+  da Receita com essa info não foi baixado).
+- RAIS Vínculos: série 2001-2025 (13 pontos) em vez de 2000-2025 (6 pontos),
+  e "estabelecimentos" vem do CNPJ (não do RAIS ESTAB, que não foi baixado).
+"""
+
+import re
 
 import pandas as pd
 import streamlit as st
 
 DATA_DIR = "."
 
-EMPRESAS_ATIVAS_FILE = f"{DATA_DIR}/Empresas_Ativas_Jul26_completo.xlsx"
-EMPREGOS_FILE = f"{DATA_DIR}/Estoque_Empregos_RAIS_corrigido.xlsx"
-ESTAB_FILE = f"{DATA_DIR}/Estoque_Empresas_RAIS_corrigido.xlsx"
-QL_GRUPO_FILE = f"{DATA_DIR}/QL_por_Grupo_CNAE_com_nomes.xlsx"
-EMPRESAS_GRUPO_13_FILE = f"{DATA_DIR}/Empresas_por_Grupo_CNAE_RAIS.xlsx"
-RENDA_FILES = {
-    "Seção": f"{DATA_DIR}/Renda_por_Secao_CNAE_RAIS.xlsx",
-    "Divisão": f"{DATA_DIR}/Renda_por_Divisao_CNAE_RAIS.xlsx",
-    "Grupo": f"{DATA_DIR}/Renda_por_Grupo_CNAE_RAIS.xlsx",
-}
+CNPJ_ANOS = [2000, 2005, 2010, 2015, 2020, 2025]
 
-ANOS = [2000, 2005, 2010, 2015, 2020, 2025]
-ANOS_13 = [2001, 2003, 2005, 2007, 2009, 2011, 2013, 2015, 2017, 2019, 2021, 2023, 2025]
+CITIES = {
+    "Imperatriz (MA)": {
+        "city_name": "Imperatriz",
+        "ref_geo": "Maranhão",
+        "ref_abbr": "MA",
+        "empresas_ativas_file": f"{DATA_DIR}/Empresas_Ativas_Jul26_completo.xlsx",
+        "empregos_file": f"{DATA_DIR}/Estoque_Empregos_RAIS_corrigido.xlsx",
+        "estab_file": f"{DATA_DIR}/Estoque_Empresas_RAIS_corrigido.xlsx",
+        "ql_file": f"{DATA_DIR}/QL_por_Grupo_CNAE_com_nomes.xlsx",
+        "portes": ["Grande/Médio", "ME/EPP", "MEI"],
+        "porte_colors": {"Grande/Médio": "#1E2A5E", "ME/EPP": "#2E7D32", "MEI": "#EF6C00"},
+        "tem_brasil_empregos": False,
+        "fonte_estab": "RAIS ESTAB/MTE — estabelecimentos com pelo menos 1 empregado formal.",
+    },
+    "Ananindeua (PA)": {
+        "city_name": "Ananindeua",
+        "ref_geo": "Pará",
+        "ref_abbr": "PA",
+        "empresas_ativas_file": f"{DATA_DIR}/Empresas_Ativas_Ananindeua_completo.xlsx",
+        "empregos_file": f"{DATA_DIR}/Estoque_Empregos_RAIS_Ananindeua_Capanema.xlsx",
+        "estab_file": f"{DATA_DIR}/Estoque_Empresas_Ananindeua_Capanema.xlsx",
+        "ql_file": f"{DATA_DIR}/QL_por_Grupo_CNAE_Ananindeua.xlsx",
+        "empregos_sheet": "Ananindeua",
+        "portes": ["MEI", "Demais"],
+        "porte_colors": {"MEI": "#EF6C00", "Demais": "#1E2A5E"},
+        "tem_brasil_empregos": False,
+        "fonte_estab": "CNPJ Receita Federal — todo CNPJ ativo (RAIS ESTAB não disponível nesta série; "
+        "conceito diferente: inclui empresas sem empregados, ex. MEI).",
+    },
+    "Capanema (PA)": {
+        "city_name": "Capanema",
+        "ref_geo": "Pará",
+        "ref_abbr": "PA",
+        "empresas_ativas_file": f"{DATA_DIR}/Empresas_Ativas_Capanema_completo.xlsx",
+        "empregos_file": f"{DATA_DIR}/Estoque_Empregos_RAIS_Ananindeua_Capanema.xlsx",
+        "estab_file": f"{DATA_DIR}/Estoque_Empresas_Ananindeua_Capanema.xlsx",
+        "ql_file": f"{DATA_DIR}/QL_por_Grupo_CNAE_Capanema.xlsx",
+        "empregos_sheet": "Capanema",
+        "portes": ["MEI", "Demais"],
+        "porte_colors": {"MEI": "#EF6C00", "Demais": "#1E2A5E"},
+        "tem_brasil_empregos": False,
+        "fonte_estab": "CNPJ Receita Federal — todo CNPJ ativo (RAIS ESTAB não disponível nesta série; "
+        "conceito diferente: inclui empresas sem empregados, ex. MEI).",
+    },
+}
 
 
 def _parse_num(x):
@@ -41,8 +86,6 @@ def _parse_num(x):
 
 
 def _looks_decimal(s):
-    # QL values like "12.12" or "0.46" — one dot, <=2 digits after it, and the
-    # integer part has no thousand grouping (i.e. it's a plain small number).
     parts = s.split(".")
     if len(parts) != 2:
         return False
@@ -51,8 +94,6 @@ def _looks_decimal(s):
 
 
 def _parse_pct(x):
-    """'313.0%' -> 313.0 | '-32.9%' -> -32.9 | '9230.0%' -> 9230.0 | '—' -> None
-    Percent strings always use '.' as decimal point, never as thousand separator."""
     if x is None:
         return None
     if isinstance(x, (int, float)):
@@ -67,19 +108,21 @@ def _parse_pct(x):
 
 
 @st.cache_data
-def load_empresas_ativas():
+def load_empresas_ativas(city_key):
     """Retorna DataFrame longo: geo, tipo, secao, descricao, ano, porte, valor."""
-    sheet_map = {
-        ("Imperatriz", "Ativas"): "IMPERATRIZ — Ativas",
-        ("Maranhão", "Ativas"): "MARANHÃO — Ativas",
-        ("Brasil", "Ativas"): "BRASIL — Ativas",
-        ("Imperatriz", "Todas"): "IMPERATRIZ — Todas criadas",
-        ("Maranhão", "Todas"): "MARANHÃO — Todas criadas",
-        ("Brasil", "Todas"): "BRASIL — Todas criadas",
+    cfg = CITIES[city_key]
+    geo_name_map = {
+        cfg["city_name"].upper(): cfg["city_name"],
+        cfg["ref_geo"].upper(): cfg["ref_geo"],
+        "BRASIL": "Brasil",
     }
-    xl = pd.ExcelFile(EMPRESAS_ATIVAS_FILE)
+    xl = pd.ExcelFile(cfg["empresas_ativas_file"])
     rows = []
-    for (geo, tipo), sheet in sheet_map.items():
+    for sheet in xl.sheet_names:
+        raw_geo, _, raw_tipo = sheet.partition("—")
+        geo = geo_name_map.get(raw_geo.strip(), raw_geo.strip())
+        tipo = "Ativas" if "Ativas" in raw_tipo else "Todas"
+
         df = xl.parse(sheet, header=None)
         row_anos = df.iloc[2]
         row_porte = df.iloc[3]
@@ -113,15 +156,35 @@ def load_empresas_ativas():
     return pd.DataFrame(rows)
 
 
+def _detect_year_cols(header_row2):
+    """Lê a linha de cabeçalho (ex: 'Empregos\\n2001') e devolve {col_idx: ano}.
+    Ignora a coluna de Δ% (que também menciona anos, ex: '2000→2025')."""
+    year_cols = {}
+    for c, val in header_row2.items():
+        if pd.isna(val):
+            continue
+        s = str(val)
+        if "Δ" in s or "→" in s or "acum" in s.lower():
+            continue
+        m = re.search(r"(20\d{2})", s)
+        if m:
+            year_cols[c] = int(m.group(1))
+    return year_cols
+
+
 def _load_estoque_file(path, titulo_valor):
-    """Para Estoque_Empregos_RAIS_corrigido.xlsx e Estoque_Empresas_RAIS_corrigido.xlsx.
-    Retorna (long_df, delta_df) — long_df tem geo/secao/descricao/ano/valor,
-    delta_df tem geo/secao/descricao/delta_pct (Δ% já calculado na planilha)."""
+    """Para arquivos no padrão Estoque_Empregos/Estoque_Empresas: detecta os
+    anos disponíveis dinamicamente pelo cabeçalho (a série varia por cidade).
+    Retorna (long_df, delta_df)."""
     xl = pd.ExcelFile(path)
     long_rows = []
     delta_rows = []
     for geo in xl.sheet_names:
         df = xl.parse(geo, header=None)
+        header_row2 = df.iloc[2]
+        year_cols = _detect_year_cols(header_row2)
+        delta_col = max(year_cols.keys()) + 1 if year_cols else None
+
         for r in range(3, df.shape[0]):
             secao = df.iat[r, 0]
             descricao = df.iat[r, 1]
@@ -129,66 +192,47 @@ def _load_estoque_file(path, titulo_valor):
                 continue
             is_total = secao == "TOTAL"
             descricao = "TOTAL GERAL" if is_total else descricao
-            for i, ano in enumerate(ANOS):
-                valor = _parse_num(df.iat[r, 2 + i])
+            for c, ano in year_cols.items():
+                valor = _parse_num(df.iat[r, c])
                 long_rows.append(
-                    {
-                        "geo": geo,
-                        "secao": secao,
-                        "descricao": descricao,
-                        "ano": ano,
-                        titulo_valor: valor,
-                    }
+                    {"geo": geo, "secao": secao, "descricao": descricao, "ano": ano, titulo_valor: valor}
                 )
-            delta = _parse_pct(df.iat[r, 8])
+            delta = _parse_pct(df.iat[r, delta_col]) if delta_col is not None else None
             delta_rows.append(
-                {
-                    "geo": geo,
-                    "secao": secao,
-                    "descricao": descricao,
-                    "delta_pct": delta,
-                    "is_total": is_total,
-                }
+                {"geo": geo, "secao": secao, "descricao": descricao, "delta_pct": delta, "is_total": is_total}
             )
     return pd.DataFrame(long_rows), pd.DataFrame(delta_rows)
 
 
 @st.cache_data
-def load_empregos():
-    return _load_estoque_file(EMPREGOS_FILE, "empregos")
+def load_empregos(city_key):
+    cfg = CITIES[city_key]
+    return _load_estoque_file(cfg["empregos_file"], "empregos")
 
 
 @st.cache_data
-def load_estabelecimentos():
-    return _load_estoque_file(ESTAB_FILE, "estabelecimentos")
+def load_estabelecimentos(city_key):
+    cfg = CITIES[city_key]
+    return _load_estoque_file(cfg["estab_file"], "estabelecimentos")
 
 
 @st.cache_data
-def load_ql_grupo():
+def load_ql_grupo(city_key):
     """Retorna dict {chave: DataFrame} para as 4 abas do arquivo de QL por grupo."""
+    cfg = CITIES[city_key]
+    abbr = cfg["ref_abbr"]
     sheet_map = {
-        "Empresas Ativas vs Maranhão": "ATIV_vs_MA",
+        f"Empresas Ativas vs {cfg['ref_geo']}": f"ATIV_vs_{abbr}",
         "Empresas Ativas vs Brasil": "ATIV_vs_BR",
-        "Todas as Empresas Criadas vs Maranhão": "TODA_vs_MA",
+        f"Todas as Empresas Criadas vs {cfg['ref_geo']}": f"TODA_vs_{abbr}",
         "Todas as Empresas Criadas vs Brasil": "TODA_vs_BR",
     }
-    xl = pd.ExcelFile(QL_GRUPO_FILE)
+    xl = pd.ExcelFile(cfg["ql_file"])
     result = {}
     for label, sheet in sheet_map.items():
         df = xl.parse(sheet, header=None)
         header_row = 2
-        cols = [
-            "codigo",
-            "nome",
-            "ql_2000",
-            "ql_2005",
-            "ql_2010",
-            "ql_2015",
-            "ql_2020",
-            "ql_2025",
-            "ql_medio",
-            "periodos_cresc",
-        ]
+        cols = ["codigo", "nome"] + [f"ql_{a}" for a in CNPJ_ANOS] + ["ql_medio", "periodos_cresc"]
         data = df.iloc[header_row + 1 :].reset_index(drop=True)
         data.columns = cols
         for c in cols[2:]:
@@ -196,32 +240,3 @@ def load_ql_grupo():
         data = data.dropna(subset=["codigo"])
         result[label] = data
     return result
-
-
-@st.cache_data
-def load_empresas_grupo_13():
-    """Empresas ativas por Grupo CNAE, série de 13 pontos (2001-2025, Receita
-    Federal), já com QL Imperatriz vs Maranhão calculado na planilha."""
-    df = pd.read_excel(EMPRESAS_GRUPO_13_FILE, header=3)
-    out = pd.DataFrame()
-    out["codigo"] = df["Grupo"].astype(int).astype(str).str.zfill(3)
-    out["nome"] = df["Nome Grupo"]
-    out["secao"] = df["Seção"]
-    for a in ANOS_13:
-        out[f"ql_{a}"] = df[f"QL {a}"]
-        out[f"emp_{a}"] = df[f"Emp. {a}"]
-    out["ql_medio"] = df["QL Médio"]
-    out["representatividade"] = df["Representat. (%)"]
-    out["cresc_5anos"] = df["Cresc. 5 anos (%)"]
-    out["periodos_cresc"] = df["Consistência (0-12)"].apply(
-        lambda s: int(str(s).split("/")[0]) if pd.notna(s) else None
-    )
-    return out
-
-
-@st.cache_data
-def load_renda(nivel):
-    """Renda média por Seção/Divisão/Grupo CNAE (RAIS 2025) — Imperatriz vs
-    Maranhão, com QL de renda já calculado na planilha."""
-    df = pd.read_excel(RENDA_FILES[nivel], header=3)
-    return df
