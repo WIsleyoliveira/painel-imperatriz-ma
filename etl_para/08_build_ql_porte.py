@@ -169,14 +169,14 @@ def sheet_ql_geral(wb, cidade):
     header = ["Seção", "Nome Seção", "Divisão", "Nome Divisão", "Grupo", "Nome Grupo"] + \
         [f"QL {a}" for a in ANOS] + ["QL Médio", "Períodos Cresc."]
     for j, h in enumerate(header):
-        ws.cell(2, j + 1, h).font = bold
+        ws.cell(3, j + 1, h).font = bold
 
     cidade_all = by_grupo_porte[by_grupo_porte.geo_bucket == cidade].groupby("grupo_int")[val_cols].sum()
     para_all = geo_sum(by_grupo_porte, PARA_BUCKETS, ["grupo_int"]).set_index("grupo_int")
     cidade_tot_yr = cidade_all.sum(axis=0)
     para_tot_yr = para_all.sum(axis=0)
 
-    r = 3
+    r = 4
     for idx in sorted(cidade_all.index):
         info = grupo_lookup.get(idx, {})
         vals = [int(cidade_all.loc[idx, f"ativas_{a}"]) for a in ANOS]

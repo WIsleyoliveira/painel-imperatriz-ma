@@ -115,9 +115,10 @@ def write_xlsx(cidade, level, rows, filename_suffix):
     ws.title = "Empresas"
 
     nivel_lbl = {"secao": "SEÇÃO", "divisao": "DIVISÃO", "grupo": "GRUPO"}[level]
+    nivel_cap = {"secao": "Seção", "divisao": "Divisão", "grupo": "Grupo"}[level]
     ws.cell(1, 1, f"EMPRESAS ATIVAS POR {nivel_lbl} CNAE (RECEITA FEDERAL) — {cidade.upper()} vs {REF.upper()} — SÉRIE 2001-2025").font = title_font
     ws.cell(2, 1, "Estoque de empresas (matriz) ativas hoje, reconstruído por data de abertura "
-                  "(corte 31/12 de cada ano). Fonte: CNPJ/Receita Federal.")
+                  f"(corte 31/12 de cada ano). QL calculado no nível de {nivel_cap}. Fonte: CNPJ/Receita Federal.")
 
     header = []
     if level in ("secao", "divisao", "grupo"):
@@ -130,9 +131,9 @@ def write_xlsx(cidade, level, rows, filename_suffix):
         "QL Médio", "Representat. (%)", "Cresc. 5 anos (%)", "Consistência (0-12)"
     ]
     for j, h in enumerate(header):
-        ws.cell(3, j + 1, h).font = bold
+        ws.cell(4, j + 1, h).font = bold
 
-    r = 4
+    r = 5
     for row in sorted(rows, key=lambda x: str(x["idx"])):
         idx = row["idx"]
         c = 1

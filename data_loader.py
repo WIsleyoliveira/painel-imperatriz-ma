@@ -116,7 +116,7 @@ def load_nivel(city_key, fonte, nivel):
     cols = id_cols + [f"valor_{a}" for a in NIVEIS_ANOS] + [f"ql_{a}" for a in NIVEIS_ANOS] + [
         "ql_medio", "representat", "cresc5", "consistencia"
     ]
-    data = df.iloc[3:].reset_index(drop=True)
+    data = df.iloc[4:].reset_index(drop=True)
     data.columns = cols
     for c in [f"valor_{a}" for a in NIVEIS_ANOS] + [f"ql_{a}" for a in NIVEIS_ANOS] + ["ql_medio", "representat", "cresc5"]:
         data[c] = data[c].apply(_parse_num)

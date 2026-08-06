@@ -152,9 +152,9 @@ def main():
         header_out += [f"Renda Média {cidade} (R$)", f"Vínculos {cidade}",
                         f"Renda Média {REF} (R$)", f"Vínculos {REF}", f"QL Renda ({cidade[:3]}/{REF[:2]})"]
         for j, h in enumerate(header_out):
-            ws.cell(3, j + 1, h).font = bold
+            ws.cell(4, j + 1, h).font = bold
 
-        r = 4
+        r = 5
         for row in rows:
             idx = row["idx"]
             c = 1
