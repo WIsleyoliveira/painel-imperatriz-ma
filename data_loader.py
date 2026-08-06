@@ -66,6 +66,63 @@ CITIES = {
     },
 }
 
+# Arquivos "por Seção/Divisão/Grupo" (série 2001-2025, matriz, QL vs estado
+# só) — só existem para Ananindeua e Capanema, não para Imperatriz.
+NIVEIS_ANOS = [2001, 2003, 2005, 2007, 2009, 2011, 2013, 2015, 2017, 2019, 2021, 2023, 2025]
+
+NIVEIS_FILES = {
+    "Ananindeua (PA)": {
+        "Empregos": {
+            "Seção": f"{DATA_DIR}/Empregos_por_Secao_CNAE_RAIS_Ananindeua.xlsx",
+            "Divisão": f"{DATA_DIR}/Empregos_por_Divisao_CNAE_RAIS_Ananindeua.xlsx",
+            "Grupo": f"{DATA_DIR}/Empregos_por_Grupo_CNAE_RAIS_Ananindeua.xlsx",
+        },
+        "Empresas": {
+            "Seção": f"{DATA_DIR}/Empresas_por_Secao_CNAE_RAIS_Ananindeua.xlsx",
+            "Divisão": f"{DATA_DIR}/Empresas_por_Divisao_CNAE_RAIS_Ananindeua.xlsx",
+            "Grupo": f"{DATA_DIR}/Empresas_por_Grupo_CNAE_RAIS_Ananindeua.xlsx",
+        },
+    },
+    "Capanema (PA)": {
+        "Empregos": {
+            "Seção": f"{DATA_DIR}/Empregos_por_Secao_CNAE_RAIS_Capanema.xlsx",
+            "Divisão": f"{DATA_DIR}/Empregos_por_Divisao_CNAE_RAIS_Capanema.xlsx",
+            "Grupo": f"{DATA_DIR}/Empregos_por_Grupo_CNAE_RAIS_Capanema.xlsx",
+        },
+        "Empresas": {
+            "Seção": f"{DATA_DIR}/Empresas_por_Secao_CNAE_RAIS_Capanema.xlsx",
+            "Divisão": f"{DATA_DIR}/Empresas_por_Divisao_CNAE_RAIS_Capanema.xlsx",
+            "Grupo": f"{DATA_DIR}/Empresas_por_Grupo_CNAE_RAIS_Capanema.xlsx",
+        },
+    },
+}
+
+_NIVEL_ID_COLS = {
+    "Seção": ["secao", "nome_secao"],
+    "Divisão": ["secao", "nome_secao", "divisao", "nome_divisao"],
+    "Grupo": ["secao", "nome_secao", "divisao", "nome_divisao", "grupo", "nome_grupo"],
+}
+
+
+@st.cache_data
+def load_nivel(city_key, fonte, nivel):
+    """fonte: 'Empregos' | 'Empresas'. nivel: 'Seção' | 'Divisão' | 'Grupo'.
+    Retorna DataFrame com colunas de identificação + valor_<ano> + ql_<ano> +
+    ql_medio, representat, cresc5, consistencia."""
+    path = NIVEIS_FILES[city_key][fonte][nivel]
+    sheet = fonte
+    df = pd.read_excel(path, sheet_name=sheet, header=None)
+    id_cols = _NIVEL_ID_COLS[nivel]
+    cols = id_cols + [f"valor_{a}" for a in NIVEIS_ANOS] + [f"ql_{a}" for a in NIVEIS_ANOS] + [
+        "ql_medio", "representat", "cresc5", "consistencia"
+    ]
+    data = df.iloc[3:].reset_index(drop=True)
+    data.columns = cols
+    for c in [f"valor_{a}" for a in NIVEIS_ANOS] + [f"ql_{a}" for a in NIVEIS_ANOS] + ["ql_medio", "representat", "cresc5"]:
+        data[c] = data[c].apply(_parse_num)
+    data = data.dropna(subset=[id_cols[0]])
+    return data
+
 
 def _parse_num(x):
     """'1.104' -> 1104 | '—' -> None | 12.12 -> 12.12"""

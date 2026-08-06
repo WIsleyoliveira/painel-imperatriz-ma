@@ -155,6 +155,87 @@ if tela == "Resumo Executivo":
 # ---------------------------------------------------------------------------
 elif tela == "QL por Grupo CNAE":
     st.title("Quociente Locacional — Por Grupo CNAE")
+
+    tem_niveis = cidade_key in dl.NIVEIS_FILES
+    modo = "Comparação completa (Ativas/Todas × Brasil/Estado)"
+    if tem_niveis:
+        modo = st.radio(
+            "Visão",
+            [
+                "Comparação completa (Ativas/Todas × Brasil/Estado)",
+                f"Por Seção / Divisão / Grupo (série 2001-2025 vs {REF})",
+            ],
+            horizontal=False,
+        )
+
+    if tem_niveis and modo.startswith("Por Seção"):
+        st.caption(
+            f"QL > 1: proporcionalmente mais concentrado em {CIDADE} do que em {REF}. QL < 1: "
+            f"sub-representado. Inclui Representatividade (%), Crescimento nos últimos ~6 anos "
+            f"(2019→2025) e Consistência (quantas das 12 transições ano-a-ano foram positivas)."
+        )
+        col1, col2 = st.columns(2)
+        fonte_n = col1.radio("Fonte", ["Empresas", "Empregos"], horizontal=True)
+        nivel_n = col2.radio("Nível", ["Seção", "Divisão", "Grupo"], horizontal=True)
+
+        dfn = dl.load_nivel(cidade_key, fonte_n, nivel_n).copy()
+
+        busca_n = st.text_input("🔎 Buscar por nome", key="busca_nivel")
+        if busca_n:
+            name_col = {"Seção": "nome_secao", "Divisão": "nome_divisao", "Grupo": "nome_grupo"}[nivel_n]
+            dfn = dfn[dfn[name_col].str.contains(busca_n, case=False, na=False)]
+
+        dfn = dfn.sort_values("ql_medio", ascending=False, na_position="last").reset_index(drop=True)
+        st.markdown(f"**{len(dfn)} linhas** — ordenadas por QL médio")
+
+        id_cols = dl._NIVEL_ID_COLS[nivel_n]
+        id_labels = {
+            "secao": "Seção", "nome_secao": "Nome Seção", "divisao": "Divisão",
+            "nome_divisao": "Nome Divisão", "grupo": "Grupo", "nome_grupo": "Nome Grupo",
+        }
+        show_cols = id_cols + ["valor_2025", "ql_2025", "ql_medio", "representat", "cresc5", "consistencia"]
+        show_df = dfn[show_cols].copy()
+        show_df.columns = [id_labels[c] for c in id_cols] + [
+            f"{fonte_n} 2025", "QL 2025", "QL Médio", "Representat. (%)", "Cresc. ~6 anos (%)", "Consistência"
+        ]
+        for c in ["QL 2025", "QL Médio"]:
+            show_df[c] = show_df[c].apply(fmt_ql_cell)
+        for c in ["Representat. (%)", "Cresc. ~6 anos (%)"]:
+            show_df[c] = show_df[c].apply(lambda v: "—" if pd.isna(v) else f"{v:,.2f}")
+        show_df[f"{fonte_n} 2025"] = show_df[f"{fonte_n} 2025"].apply(fmt_int)
+        styled_n = show_df.style.map(color_ql, subset=["QL 2025", "QL Médio"])
+        st.dataframe(styled_n, use_container_width=True, height=600)
+
+        st.markdown("---")
+        st.markdown("### Ver evolução completa (2001-2025)")
+        label_col = id_labels[id_cols[-1]]
+        opcoes_n = dfn.head(200).apply(lambda r: f"{r[id_cols[-2]] if len(id_cols)>1 else ''} — {r[id_cols[-1]]}".strip(" —"), axis=1).tolist()
+        if opcoes_n:
+            escolha_n = st.selectbox("Selecione", opcoes_n, key="detalhe_nivel")
+            row_n = dfn.iloc[opcoes_n.index(escolha_n)]
+            with st.container(border=True):
+                st.subheader(escolha_n)
+                st.markdown(
+                    f'<span class="badge" style="background-color:{AZUL}">Consistência: {row_n["consistencia"]}</span>',
+                    unsafe_allow_html=True,
+                )
+                valores_n = [row_n[f"valor_{a}"] for a in dl.NIVEIS_ANOS]
+                qls_n = [row_n[f"ql_{a}"] for a in dl.NIVEIS_ANOS]
+                fig_n = go.Figure()
+                fig_n.add_trace(go.Scatter(x=dl.NIVEIS_ANOS, y=valores_n, mode="lines+markers",
+                                            name=fonte_n, line=dict(color=VERDE, width=3)))
+                fig_n.update_layout(title=f"{fonte_n} ao longo do tempo", xaxis_title="Ano", height=350)
+                st.plotly_chart(fig_n, use_container_width=True)
+
+                fig_ql_n = go.Figure()
+                fig_ql_n.add_trace(go.Scatter(x=dl.NIVEIS_ANOS, y=qls_n, mode="lines+markers",
+                                               name="QL", line=dict(color=AZUL, width=3), connectgaps=True))
+                fig_ql_n.add_hline(y=1, line_dash="dash", line_color="gray")
+                fig_ql_n.update_layout(title=f"QL vs {REF} ao longo do tempo", xaxis_title="Ano", yaxis_title="QL", height=350)
+                st.plotly_chart(fig_ql_n, use_container_width=True)
+
+        st.stop()
+
     st.caption(
         f"QL > 1: grupo proporcionalmente mais concentrado em {CIDADE} do que na referência. "
         f"QL < 1: sub-representado. '—' indica que o grupo não existia em {CIDADE} ou a "
