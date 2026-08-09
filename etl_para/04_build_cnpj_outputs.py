@@ -37,7 +37,7 @@ con.execute(f"""
              WHEN municipio='0443' AND uf='PA' THEN 'Capanema'
              WHEN uf='PA' THEN 'ParaResto'
              ELSE 'BrasilResto' END AS geo_bucket
-    FROM read_parquet('{STAGING}/estabele_staging.parquet')
+    FROM read_parquet('{STAGING}/estabele_staging_v2_matriz.parquet')
 """)
 
 # ---------------------------------------------------------------------
@@ -53,7 +53,7 @@ year_cols_todas = ",\n".join(
 print("Agregando por seção (para Empresas_Ativas e Estoque_Empresas)...", flush=True)
 by_secao = con.execute(f"""
     SELECT geo_bucket, secao_codigo,
-        CASE WHEN is_mei THEN 'MEI' ELSE 'Demais' END AS porte,
+        porte,
         {year_cols_ativas},
         {year_cols_todas}
     FROM staging
@@ -91,6 +91,9 @@ bold = Font(bold=True)
 title_font = Font(bold=True, size=12)
 
 
+PORTES = ["Grande/Médio", "ME/EPP", "MEI"]
+
+
 def write_empresas_ativas(cidade, cod_munic):
     geo_data = {
         cidade: by_secao[by_secao["geo_bucket"] == cidade],
@@ -106,54 +109,57 @@ def write_empresas_ativas(cidade, cod_munic):
             prefix = "ativas" if tipo == "Ativas" else "todas"
             titulo_tipo = "SOMENTE ATIVAS" if tipo == "Ativas" else "TODAS AS CRIADAS"
             ws.cell(1, 1, f"EMPRESAS POR PORTE E SEÇÃO CNAE — {geo_nome.upper()} — {titulo_tipo} — 2000 A 2025").font = title_font
-            ws.cell(2, 1, "Fonte: CNPJ Receita Federal (extração Jul/2026). Porte limitado a MEI vs Demais "
-                          "(arquivo EMPRESAS com detalhamento ME/EPP/Grande-Médio não disponível nesta base).")
+            ws.cell(2, 1, "Fonte: CNPJ Receita Federal (extração Jul/2026). Porte: MEI = optante MEI; "
+                          "ME/EPP = optante Simples Nacional (não MEI); Grande/Médio = demais "
+                          "(não optante pelo Simples Nacional).")
 
             header_row = 3
             ws.cell(header_row, 1, "Seção")
             ws.cell(header_row, 2, "Descrição")
+            n_p = len(PORTES) + 1
             col = 3
             for y in ANOS:
                 ws.cell(header_row, col, y).font = bold
-                col += 3
+                col += n_p
             sub_row = header_row + 1
             col = 3
             for y in ANOS:
-                ws.cell(sub_row, col, "MEI")
-                ws.cell(sub_row, col + 1, "Demais")
-                ws.cell(sub_row, col + 2, "Total")
-                col += 3
+                for j, p in enumerate(PORTES):
+                    ws.cell(sub_row, col + j, p)
+                ws.cell(sub_row, col + len(PORTES), "Total")
+                col += n_p
 
             secao_list = sorted(secoes.keys())
             r = sub_row + 1
-            totals = {y: {"MEI": 0, "Demais": 0} for y in ANOS}
+            totals = {y: {p: 0 for p in PORTES} for y in ANOS}
             for secao in secao_list:
                 ws.cell(r, 1, secao)
                 ws.cell(r, 2, secoes[secao])
                 col = 3
                 for y in ANOS:
-                    mei_val = df_geo[(df_geo.secao_codigo == secao) & (df_geo.porte == "MEI")][f"{prefix}_{y}"].sum()
-                    demais_val = df_geo[(df_geo.secao_codigo == secao) & (df_geo.porte == "Demais")][f"{prefix}_{y}"].sum()
-                    ws.cell(r, col, int(mei_val))
-                    ws.cell(r, col + 1, int(demais_val))
-                    ws.cell(r, col + 2, int(mei_val + demais_val))
-                    totals[y]["MEI"] += mei_val
-                    totals[y]["Demais"] += demais_val
-                    col += 3
+                    vals = {}
+                    for p in PORTES:
+                        v = df_geo[(df_geo.secao_codigo == secao) & (df_geo.porte == p)][f"{prefix}_{y}"].sum()
+                        vals[p] = v
+                        totals[y][p] += v
+                    for j, p in enumerate(PORTES):
+                        ws.cell(r, col + j, int(vals[p]))
+                    ws.cell(r, col + len(PORTES), int(sum(vals.values())))
+                    col += n_p
                 r += 1
 
             ws.cell(r, 1, "TOTAL").font = bold
             col = 3
             for y in ANOS:
-                ws.cell(r, col, int(totals[y]["MEI"])).font = bold
-                ws.cell(r, col + 1, int(totals[y]["Demais"])).font = bold
-                ws.cell(r, col + 2, int(totals[y]["MEI"] + totals[y]["Demais"])).font = bold
-                col += 3
+                for j, p in enumerate(PORTES):
+                    ws.cell(r, col + j, int(totals[y][p])).font = bold
+                ws.cell(r, col + len(PORTES), int(sum(totals[y].values()))).font = bold
+                col += n_p
 
             ws.column_dimensions["A"].width = 8
             ws.column_dimensions["B"].width = 55
-            for c in range(3, 3 + 3 * len(ANOS)):
-                ws.column_dimensions[get_column_letter(c)].width = 11
+            for c in range(3, 3 + n_p * len(ANOS)):
+                ws.column_dimensions[get_column_letter(c)].width = 12
 
     path = f"{OUT_DIR}/Empresas_Ativas_{cidade}_completo.xlsx"
     wb.save(path)

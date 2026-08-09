@@ -43,8 +43,8 @@ CITIES = {
         "estab_file": f"{DATA_DIR}/Estoque_Empresas_Ananindeua_Capanema.xlsx",
         "ql_file": f"{DATA_DIR}/QL_por_Grupo_CNAE_Ananindeua.xlsx",
         "empregos_sheet": "Ananindeua",
-        "portes": ["MEI", "Demais"],
-        "porte_colors": {"MEI": "#EF6C00", "Demais": "#1E2A5E"},
+        "portes": ["Grande/Médio", "ME/EPP", "MEI"],
+        "porte_colors": {"Grande/Médio": "#1E2A5E", "ME/EPP": "#2E7D32", "MEI": "#EF6C00"},
         "tem_brasil_empregos": False,
         "fonte_estab": "CNPJ Receita Federal — todo CNPJ ativo (RAIS ESTAB não disponível nesta série; "
         "conceito diferente: inclui empresas sem empregados, ex. MEI).",
@@ -58,8 +58,8 @@ CITIES = {
         "estab_file": f"{DATA_DIR}/Estoque_Empresas_Ananindeua_Capanema.xlsx",
         "ql_file": f"{DATA_DIR}/QL_por_Grupo_CNAE_Capanema.xlsx",
         "empregos_sheet": "Capanema",
-        "portes": ["MEI", "Demais"],
-        "porte_colors": {"MEI": "#EF6C00", "Demais": "#1E2A5E"},
+        "portes": ["Grande/Médio", "ME/EPP", "MEI"],
+        "porte_colors": {"Grande/Médio": "#1E2A5E", "ME/EPP": "#2E7D32", "MEI": "#EF6C00"},
         "tem_brasil_empregos": False,
         "fonte_estab": "CNPJ Receita Federal — todo CNPJ ativo (RAIS ESTAB não disponível nesta série; "
         "conceito diferente: inclui empresas sem empregados, ex. MEI).",

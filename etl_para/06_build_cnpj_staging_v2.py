@@ -46,7 +46,8 @@ def main():
         CREATE VIEW simples AS
         SELECT
             cnpj_basico,
-            (opcao_mei = 'S' AND data_exclusao_mei = '00000000') AS is_mei
+            (opcao_mei = 'S' AND data_exclusao_mei = '00000000') AS is_mei,
+            (opcao_simples = 'S' AND data_exclusao_simples = '00000000') AS is_simples
         FROM read_csv('{CNPJ_DIR}/F.K03200$W.SIMPLES.CSV.D60711', delim=';', header=False,
             quote='"', encoding='latin-1', columns={{{SIMPLES_COLS_SQL}}})
     """)
@@ -64,7 +65,11 @@ def main():
                 m.divisao_codigo,
                 (e.situacao_cadastral = '02') AS is_ativa,
                 TRY_CAST(SUBSTR(e.data_inicio, 1, 4) AS INTEGER) AS ano_abertura,
-                COALESCE(s.is_mei, FALSE) AS is_mei
+                COALESCE(s.is_mei, FALSE) AS is_mei,
+                COALESCE(s.is_simples, FALSE) AS is_simples,
+                CASE WHEN COALESCE(s.is_mei, FALSE) THEN 'MEI'
+                     WHEN COALESCE(s.is_simples, FALSE) THEN 'ME/EPP'
+                     ELSE 'Grande/Médio' END AS porte
             FROM read_csv(
                 '{ESTABELE_UTF8_DIR}/K3241.K03200Y*.D60711.ESTABELE.utf8',
                 delim=';', header=False, quote='"',

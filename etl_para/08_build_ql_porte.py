@@ -1,7 +1,8 @@
-"""QL_Grupo_Empresas_por_Porte_{Cidade}.xlsx — réplica do conceito do
-QL_Grupo_Empresas_por_Porte.xlsx de Imperatriz, adaptado para o esquema de
-porte disponível aqui (MEI vs Demais, sem ME/EPP x Grande/Médio separados).
-Sheets: Totais por Porte e Ano | {CIDADE}_MEI | {CIDADE}_Demais | QL Geral - vs PA"""
+"""QL_Grupo_Empresas_por_Porte_{Cidade}.xlsx — réplica do QL_Grupo_Empresas_por_Porte.xlsx
+de Imperatriz. Porte = MEI (optante MEI) / ME/EPP (optante Simples Nacional,
+não MEI) / Grande/Médio (não optante pelo Simples Nacional).
+Sheets: Totais por Porte e Ano | {CIDADE}_MEI | {CIDADE}_MEEPP |
+{CIDADE}_GrandeMedio | QL Geral - vs PA"""
 
 import duckdb
 import pandas as pd
@@ -37,7 +38,7 @@ by_grupo_porte = con.execute(f"""
              WHEN uf='PA' THEN 'ParaResto'
              ELSE 'Outro' END AS geo_bucket,
         grupo_codigo,
-        CASE WHEN is_mei THEN 'MEI' ELSE 'Demais' END AS porte,
+        porte,
         {year_cols_ativas}
     FROM read_parquet('{STAGING}/estabele_staging_v2_matriz.parquet')
     WHERE grupo_codigo IS NOT NULL AND uf='PA'
@@ -48,6 +49,9 @@ val_cols = [f"ativas_{y}" for y in ANOS]
 
 bold = Font(bold=True)
 title_font = Font(bold=True, size=12)
+
+PORTES = ["MEI", "ME/EPP", "Grande/Médio"]
+SHEET_SUFFIX = {"MEI": "MEI", "ME/EPP": "MEEPP", "Grande/Médio": "GrandeMedio"}
 
 
 def geo_sum(df_, buckets, group_cols):
@@ -78,7 +82,7 @@ def sheet_totais(wb, cidade):
     for nivel, dfx in [(cidade, cidade_pp), (REF, para_pp)]:
         primeiro = True
         totals = [0] * len(ANOS)
-        for porte in ["MEI", "Demais"]:
+        for porte in PORTES:
             vals = [int(dfx.loc[porte, f"ativas_{a}"]) if porte in dfx.index else 0 for a in ANOS]
             ws.cell(r, 1, nivel if primeiro else "")
             ws.cell(r, 2, porte)
@@ -98,7 +102,7 @@ def sheet_totais(wb, cidade):
 
 
 def sheet_porte_grupo(wb, cidade, porte):
-    ws = wb.create_sheet(f"{cidade}_{porte}")
+    ws = wb.create_sheet(f"{cidade}_{SHEET_SUFFIX[porte]}"[:31])
     ws.cell(1, 1, f"EMPRESAS {porte.upper()} POR SEÇÃO/DIVISÃO/GRUPO CNAE — {cidade.upper()} — 2001 A 2025").font = title_font
 
     header = ["Seção", "Nome Seção", "Divisão", "Nome Divisão", "Grupo", "Nome Grupo"] + \
@@ -212,8 +216,8 @@ for cidade in MUNIC_CODES:
     wb = Workbook()
     wb.remove(wb.active)
     sheet_totais(wb, cidade)
-    sheet_porte_grupo(wb, cidade, "MEI")
-    sheet_porte_grupo(wb, cidade, "Demais")
+    for porte in PORTES:
+        sheet_porte_grupo(wb, cidade, porte)
     sheet_ql_geral(wb, cidade)
     path = f"{OUT_DIR}/QL_Grupo_Empresas_por_Porte_{cidade}.xlsx"
     wb.save(path)
